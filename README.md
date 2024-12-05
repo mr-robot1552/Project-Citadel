@@ -83,10 +83,17 @@ Open the Processing IDE and load RadarSystem/Radar.pde for GUI visualization.
 Cybersecurity Integration: Each room features unique countermeasures against intrusion.
 Real-time Monitoring: The radar system provides live proximity updates via a GUI.
 Scalable Design: Modular architecture makes it easy to add or modify components.
+
+🔧 Visuals
+Radar GUI
+
+Hardware Schematics
+
 🛠️ Challenges Faced
 Calibrating sensor sensitivity to reduce false alarms.
 Synchronizing multiple systems for seamless operation.
 Debugging TCP communication for the radar's Processing GUI.
+
 💡 Future Enhancements
 Add camera modules for real-time video surveillance.
 Integrate with a mobile app for remote monitoring.
