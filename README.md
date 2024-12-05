@@ -64,7 +64,7 @@ Project-Citadel/ │ ├── Room1/ │ ├── room1_pir_sensor.py # Code f
 ## 🖥️ How to Run
 1. Clone this repository:
    ```bash
-   git clone https://github.com/yourusername/Project-Citadel.git
+   git clone https://github.com/mr-robot1552/Project-Citadel.git
 
 Install required Python libraries:
 
