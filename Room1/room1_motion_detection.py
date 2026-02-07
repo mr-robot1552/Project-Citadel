@@ -1,65 +1,106 @@
-# Import necessary modules
+"""
+Project Citadel — Room 1: Motion Detection & Alerting
+
+Implements first-level intrusion detection using a PIR motion sensor.
+When armed, motion triggers:
+- LED strobe indication
+- Audible alert using PWM on a buzzer/speaker output
+
+Controls:
+- Arm/Disarm via push button
+- Clean shutdown on Ctrl+C (SIGINT)
+
+GPIO Pins (BCM):
+- LED: 18
+- Buzzer/Speaker (PWM): 19
+- PIR Motion Sensor: 25
+- Arm/Disarm Button: 20
+"""
+
 from gpiozero import LED, Button, MotionSensor, Device
 from gpiozero.pins.pigpio import PiGPIOFactory
 from signal import pause, signal, SIGINT
 import time
 import sys
 
-# Set pigpio as the pin factory
 Device.pin_factory = PiGPIOFactory()
 
-# Define GPIO pins
 LED_PIN = 18
-SPEAKER_PIN = 19  # Speaker connected to GPIO 19
+BUZZER_PWM_PIN = 19
 PIR_PIN = 25
 BUTTON_PIN = 20
 
-# Initialize components
+ALERT_COOLDOWN_S = 2.0
+BEEP_FREQ_HZ = 1000
+BEEP_DURATION_S = 0.2
+PWM_DUTY_CYCLE = 500000  # 50% (range: 0–1,000,000)
+
 led = LED(LED_PIN)
 pir = MotionSensor(PIR_PIN)
 button = Button(BUTTON_PIN)
+
 system_armed = False
+last_alert_ts = 0.0
 
-# Function to generate a simple beep sound using the speaker
-def beep(frequency=1000, duration=0.2):
-    print("Alarm sound on...")
-    Device.pin_factory.hardware_PWM(SPEAKER_PIN, frequency, 500000)  # 50% duty cycle
-    time.sleep(duration)
-    Device.pin_factory.hardware_PWM(SPEAKER_PIN, 0, 0)  # Turn off the speaker
 
-# Function to arm/disarm the system
-def toggle_system():
+def buzzer_beep(frequency_hz: int = BEEP_FREQ_HZ, duration_s: float = BEEP_DURATION_S) -> None:
+    """Generate a short audible alert using hardware PWM."""
+    Device.pin_factory.hardware_PWM(BUZZER_PWM_PIN, frequency_hz, PWM_DUTY_CYCLE)
+    time.sleep(duration_s)
+    Device.pin_factory.hardware_PWM(BUZZER_PWM_PIN, 0, 0)
+
+
+def handle_motion() -> None:
+    """Triggered by PIR motion events when the system is armed."""
+    global last_alert_ts
+
+    if not system_armed:
+        return
+
+    now = time.time()
+    if now - last_alert_ts < ALERT_COOLDOWN_S:
+        return
+
+    last_alert_ts = now
+    print("[ALERT] Motion detected (Room 1).")
+
+    led.blink(on_time=0.1, off_time=0.1)
+    buzzer_beep()
+
+
+def toggle_system() -> None:
+    """Arm/disarm the Room 1 subsystem."""
     global system_armed
+
     system_armed = not system_armed
     if system_armed:
-        print("Security system armed")
-        pir.when_motion = handle_motion  # Re-enable motion detection when armed
+        print("[INFO] Room 1 armed.")
+        pir.when_motion = handle_motion
     else:
-        print("Security system disarmed")
-        led.off()  # Turn off LED when disarming
-        pir.when_motion = None  # Disable motion detection when disarmed
+        print("[INFO] Room 1 disarmed.")
+        pir.when_motion = None
+        led.off()
+        Device.pin_factory.hardware_PWM(BUZZER_PWM_PIN, 0, 0)
 
-# Function to handle motion detection
-def handle_motion():
-    if system_armed:
-        print("Motion detected!")
-        led.blink(on_time=0.1, off_time=0.1)  # LED flashes fast like a strobe
-        beep()  # Generate an alarm sound
-        time.sleep(2)  # Delay to avoid over-sensitivity
 
-# Cleanup function for graceful shutdown
-def cleanup_and_exit(signum, frame):
-    print("Shutting down the system...")
-    led.off()
+def cleanup_and_exit(signum, frame) -> None:
+    """Graceful shutdown: disable events and ensure outputs are off."""
+    print("\n[INFO] Shutting down Room 1...")
     pir.when_motion = None
+    led.off()
+    try:
+        Device.pin_factory.hardware_PWM(BUZZER_PWM_PIN, 0, 0)
+    except Exception:
+        pass
+    try:
+        led.close()
+    except Exception:
+        pass
     sys.exit(0)
 
-# Event handlers
-button.when_pressed = toggle_system
 
-# Catch Ctrl+C for cleanup
+button.when_pressed = toggle_system
 signal(SIGINT, cleanup_and_exit)
 
-# Prevent program from exiting (allow Ctrl+C to exit)
-print("Press button to arm/disarm the system.")
+print("Room 1 ready. Use the button to arm/disarm. Press Ctrl+C to exit.")
 pause()
