@@ -1,28 +1,60 @@
+"""
+Project Citadel — Room 3: Gas Release Simulation
+
+Simulates a breach using a laser + LDR tripwire (RC timing). When breached:
+- Activates an ultrasonic humidifier via relay to simulate gas release
+- Displays a persistent breach message on an I2C LCD
+- Requires a passphrase to disarm (configured at runtime)
+
+GPIO Pins (BCM):
+- LDR RC input: 17
+- Relay output: 23
+
+LCD:
+- I2C expander: PCF8574
+- Address: 0x27 (may vary by hardware)
+"""
+
+import os
 import time
 from RPLCD.i2c import CharLCD
 import RPi.GPIO as GPIO
 
+# ----------------------------
+# Configuration (edit safely)
+# ----------------------------
+LDR_PIN = 17
+RELAY_PIN = 23
+
+LCD_I2C_ADDRESS = int(os.getenv("ROOM3_LCD_ADDR", "0x27"), 16)
+
+TRIP_THRESHOLD = int(os.getenv("ROOM3_TRIP_THRESHOLD", "2000"))
+POLL_DELAY_S = 0.5
+DISCHARGE_DELAY_S = 0.1
+
+REQUIRE_PASSPHRASE = os.getenv("ROOM3_REQUIRE_PASSPHRASE", "true").lower() in ("1", "true", "yes")
+DISARM_PASSPHRASE = os.getenv("ROOM3_DISARM_PASSPHRASE", "")  # set at runtime
+
+
 # LCD Initialization
-lcd = CharLCD('PCF8574', 0x27)  # Replace 0x27 with your I2C address if different
-lcd.clear()  # Clear the screen to initialize
+lcd = CharLCD("PCF8574", LCD_I2C_ADDRESS)
+lcd.clear()
 
 # GPIO Setup
 GPIO.setmode(GPIO.BCM)
-LDR_PIN = 17  # GPIO pin connected to the LDR-capacitor circuit
-RELAY_PIN = 23  # GPIO pin connected to the relay module for the humidifier
-
-GPIO.setup(RELAY_PIN, GPIO.OUT)  # Set up the relay control pin as an output
-GPIO.output(RELAY_PIN, GPIO.LOW)  # Ensure the relay is initially off
+GPIO.setup(RELAY_PIN, GPIO.OUT)
+GPIO.output(RELAY_PIN, GPIO.LOW)
 
 armed = False
 breach_triggered = False
 
-def rc_time(pin):
-    """Measure the time taken for the capacitor to charge, indicative of light level."""
+
+def rc_time(pin: int) -> int:
+    """Measure RC charge time; higher count indicates lower light (beam interrupted)."""
     count = 0
     GPIO.setup(pin, GPIO.OUT)
     GPIO.output(pin, False)
-    time.sleep(0.1)
+    time.sleep(DISCHARGE_DELAY_S)
     GPIO.setup(pin, GPIO.IN)
 
     while GPIO.input(pin) == GPIO.LOW:
@@ -30,65 +62,109 @@ def rc_time(pin):
 
     return count
 
-def arm_system():
+
+def arm_system() -> None:
     """Prompt to arm the system."""
     global armed
     while True:
-        command = input("Would you like to arm the system? Type 'ARM' to proceed: ")
+        command = input("Type 'ARM' to arm Room 3: ").strip()
         if command.upper() == "ARM":
-            print("System armed!")
-            lcd.write_string("System Armed!")  # Display message on the LCD
-            time.sleep(2)
+            lcd.clear()
+            lcd.write_string("System Armed")
+            time.sleep(1.5)
             lcd.clear()
             armed = True
-            print("Laser tripwire armed and ready.")
-            break
+            print("[INFO] Room 3 armed (laser tripwire active).")
+            return
 
-def trigger_breach():
-    """Activate the breach message and turn on the humidifier continuously until disarmed."""
-    global breach_triggered
-    breach_triggered = True
-    GPIO.output(RELAY_PIN, GPIO.HIGH)  # Activate the relay to power the humidifier
-    print("SECURITY BREACH detected!")
-    print("Countermeasures Activated - Gas Released!")
 
-    # Display breach message on the LCD
-    lcd.write_string("SECURITY BREACH!")
+def show_breach_message() -> None:
+    """Display breach status on the LCD."""
+    lcd.clear()
+    lcd.write_string("SECURITY BREACH")
     lcd.crlf()
-    lcd.write_string("GAS RELEASED!")
-    while breach_triggered:  # Keep the message displayed until the system is disarmed
-        time.sleep(1)
+    lcd.write_string("GAS RELEASED")
 
-    disarm_system()  # Prompt to disarm immediately after breach
 
-def disarm_system():
-    """Prompt to disarm the system with passphrase."""
+def set_humidifier(on: bool) -> None:
+    """Control relay power to the humidifier."""
+    GPIO.output(RELAY_PIN, GPIO.HIGH if on else GPIO.LOW)
+
+
+def disarm_loop() -> None:
+    """Prompt for passphrase until disarmed (if enabled)."""
     global armed, breach_triggered
+
+    if not REQUIRE_PASSPHRASE:
+        print("[INFO] Passphrase gate disabled. Disarming.")
+        armed = False
+        breach_triggered = False
+        return
+
+    if not DISARM_PASSPHRASE:
+        print("[WARN] ROOM3_REQUIRE_PASSPHRASE=true but ROOM3_DISARM_PASSPHRASE is not set.")
+        print("[INFO] Disarming without passphrase.")
+        armed = False
+        breach_triggered = False
+        return
+
     while True:
-        passphrase = input("Enter passphrase to disarm: ")
-        if passphrase == "PhantomMist":
-            print("System disarmed.")
-            lcd.clear()  # Clear the LCD screen
+        entered = input("Enter passphrase to disarm: ").strip()
+        if entered == DISARM_PASSPHRASE:
+            print("[INFO] Room 3 disarmed.")
+            lcd.clear()
             lcd.write_string("System Disarmed")
-            time.sleep(2)
+            time.sleep(1.5)
             lcd.clear()
             armed = False
             breach_triggered = False
-            GPIO.output(RELAY_PIN, GPIO.LOW)  # Deactivate the relay to turn off the humidifier
-            break
+            return
+        print("Incorrect passphrase. System remains active.")
 
-try:
-    arm_system()
-    if armed:
+
+def trigger_breach() -> None:
+    """Activate breach response and wait for disarm."""
+    global breach_triggered
+    breach_triggered = True
+
+    print("[ALERT] SECURITY BREACH detected (Room 3).")
+    print("[ALERT] Countermeasures activated: gas release simulation.")
+
+    set_humidifier(True)
+    show_breach_message()
+
+    disarm_loop()
+    set_humidifier(False)
+
+
+def cleanup() -> None:
+    """Ensure hardware is left in a safe state."""
+    try:
+        set_humidifier(False)
+    except Exception:
+        pass
+    try:
+        lcd.clear()
+    except Exception:
+        pass
+    try:
+        GPIO.cleanup()
+    except Exception:
+        pass
+    print("[INFO] Room 3 shutdown complete.")
+
+
+if __name__ == "__main__":
+    try:
+        arm_system()
         while armed:
-            light_level = rc_time(LDR_PIN)  # Check for breach
-            if light_level > 2000 and not breach_triggered:  # Adjust threshold as needed
+            light_level = rc_time(LDR_PIN)
+            if light_level > TRIP_THRESHOLD and not breach_triggered:
                 trigger_breach()
-            time.sleep(0.5)  # Small delay to prevent excessive polling
-except KeyboardInterrupt:
-    print("Program interrupted.")
-    lcd.clear()  # Clear the LCD on exit
-finally:
-    GPIO.cleanup()
-    lcd.clear()  # Ensure the LCD is cleared on exit
-    print("System shutdown.")
+            time.sleep(POLL_DELAY_S)
+
+    except KeyboardInterrupt:
+        print("\n[INFO] Program interrupted by user (Ctrl+C).")
+
+    finally:
+        cleanup()
