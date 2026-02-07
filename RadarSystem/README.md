@@ -9,20 +9,19 @@ The Radar System provides real-time distance scanning and visualization to exten
 - Raspberry Pi (GPIO)
 
 ## Files
-- `radar_controller.py` — controls the ultrasonic sensor + servo sweep and outputs live distance readings
-- `radar_gui.pde` — Processing GUI that reads the live distance stream and renders radar visualization
+- `radar_controller.py` — controls the ultrasonic sensor + servo sweep and streams angle/distance readings over TCP
+- `radar_gui.pde` — Processing GUI that connects over TCP and renders a radar visualization
 
 ## How It Works (High-Level)
 - The Raspberry Pi sweeps the ultrasonic sensor using a servo motor across an angle range.
-- For each angle step, distance is measured and formatted as a live data stream.
-- The Processing GUI receives the stream and renders a radar-style sweep with detected distance points.
-- This subsystem is designed to demonstrate real-time sensor fusion + visualization as part of the Project Citadel architecture.
+- For each angle step, distance is measured and transmitted as a TCP data stream in the format: `angle,distance`.
+- The Processing GUI connects to the Raspberry Pi TCP server, reads the stream, and renders a radar-style sweep with detected distance points.
+- This subsystem demonstrates real-time sensing + visualization within the Project Citadel architecture.
 
 ## Run Notes
-- Run `radar_controller.py` on the Raspberry Pi.
-- Run `radar_gui.pde` on a computer with Processing installed.
-- Ensure both sides are configured to communicate using the same method defined in the code (serial or network).
-- Wiring and GPIO mapping are documented in the main project README.
+- The radar controller runs on the Raspberry Pi and listens for a TCP client connection (default port: `5005`).
+- The GUI runs in Processing on a computer and connects to the controller using the configured host/port in `radar_gui.pde`.
+- This repository reflects the final academic implementation; physical hardware is required to execute and validate runtime behavior.
 
 ## Media
 See the `/media` folder for diagrams and visuals used in the project documentation.
